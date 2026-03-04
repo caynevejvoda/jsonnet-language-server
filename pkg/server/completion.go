@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/google/go-jsonnet"
 	"github.com/google/go-jsonnet/ast"
@@ -52,12 +53,54 @@ func (s *Server) Completion(_ context.Context, params *protocol.CompletionParams
 		arguments := strings.Split(argsPart, ",")
 		lastArg := arguments[len(arguments)-1]
 		lastArg = strings.TrimSpace(lastArg)
+		lastArg = trimNamedArgPrefix(lastArg)
 		lastArg = strings.TrimLeft(lastArg, "{[") // Ignore leading array or object tokens
 		line = lastArg
 	}
 
 	items := s.completionFromStack(line, searchStack, vm, params.Position)
 	return &protocol.CompletionList{IsIncomplete: false, Items: items}, nil
+}
+
+func trimNamedArgPrefix(arg string) string {
+	eqIdx := strings.Index(arg, "=")
+	if eqIdx == -1 {
+		return arg
+	}
+
+	// Named arguments follow the form: identifier = expression
+	left := strings.TrimSpace(arg[:eqIdx])
+	right := arg[eqIdx+1:]
+	if len(right) > 0 && right[0] == '=' {
+		return arg
+	}
+
+	if isIdentifier(left) {
+		return strings.TrimSpace(right)
+	}
+
+	return arg
+}
+
+func isIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for i, r := range s {
+		if i == 0 {
+			if r != '_' && !unicode.IsLetter(r) {
+				return false
+			}
+			continue
+		}
+
+		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func getCompletionLine(fileContent string, position protocol.Position) string {
